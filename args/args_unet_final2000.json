@@ -1,0 +1,1 @@
+{"key": "unet", "mid": 0.0, "dif": 0.449, "dim_x": 96, "init_steps": 1, "dx": 0.25, "dt": 0.01, "gamma": 0.2, "n_samples_trn": 1024, "ngf": 64, "nstep": 2, "final_tstep": 2000, "num_epochs": 10, "n_primes": 100, "learning_rate": 0.00001, "device": "cuda"}

@@ -9,12 +9,12 @@ def init_norm(nsamples, dim_x, dim_y, seed=354875, m_l=-0.15, m_r=0.15):
     np.random.seed(seed)
     means  = np.random.uniform(m_l, m_r, size=nsamples)
     np.random.seed(seed)
-    scales  = np.random.uniform(0.05, 0.3, size=nsamples)
+    scales  = np.random.uniform(0.01, 0.02, size=nsamples)
     
     x_data = [np.random.normal(loc=m, scale=s, size = (1, dim_x, dim_y)) for m,s in zip(means, scales)]
     x_data = np.concatenate(x_data, axis=0)
     
-    np.clip(x_data, -0.98, 0.98, out=x_data)
+    np.clip(x_data, -0.998, 0.998, out=x_data)
     
     return x_data
 
