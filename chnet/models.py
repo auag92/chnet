@@ -11,9 +11,19 @@ from collections import OrderedDict
 
 
 @curry
-def mse_loss(y1, y2, scale=1.):
-    """standard MSE definition"""
-    return ((y1 - y2) ** 2).sum() / y1.data.nelement() * scale
+def get_model(key="unet", 
+              ngf=32,
+              tanh=True,
+              conv=True,
+              nstep=2, 
+              device=torch.device("cpu")):
+    if key == "unet":
+        model=UNet(in_channels=1, out_channels=1, init_features=ngf, tanh=tanh, conv=conv).double().to(device)
+    elif key == "unet_solo_loop":
+        model=UNet_solo_loop(in_channels=1, out_channels=1, init_features=ngf, temporal=nstep, tanh=tanh).double().to(device)
+    elif key == "unet_loop":
+        model=UNet_loop(in_channels=1, out_channels=1, init_features=ngf, temporal=nstep, tanh=tanh).double().to(device)
+    return model
 
 
 class Padder(nn.Module):
@@ -58,7 +68,9 @@ class UNet(nn.Module):
         self.upconv1 = nn.ConvTranspose2d(
             features * 2, features, kernel_size=2, stride=2
         )
-        self.decoder1 = UNet._block(features * 2, features, name="dec1")
+        # self.decoder1 = UNet._block(features * 2, features, name="dec1")
+        self.decoder1 = UNet._block(features, features, name="dec1")
+       
         
         if conv:
             self.conv = nn.Sequential(Padder(padval=[1]*4, padmode="circular"), 
@@ -67,6 +79,7 @@ class UNet(nn.Module):
                                                 kernel_size=3, 
                                                 padding=0))
         else:
+            self.decoder1 = UNet._block(features, 1, name="dec1")
             self.conv = lambda x: x
         
         self.tanh = tanh
@@ -89,9 +102,8 @@ class UNet(nn.Module):
         dec2 = torch.cat((dec2, enc2), dim=1)
         dec2 = self.decoder2(dec2)
         dec1 = self.upconv1(dec2)
-        dec1 = torch.cat((dec1, enc1), dim=1)
+        # dec1 = torch.cat((dec1, enc1), dim=1)
         dec1 = self.decoder1(dec1)
-        
         if self.tanh:
             return torch.tanh(self.conv(dec1))
         else:
@@ -113,8 +125,9 @@ class UNet(nn.Module):
                             bias=False,
                         ),
                     ),
-                    (name + "norm1", nn.BatchNorm2d(num_features=features)),
-                    (name + "relu1", nn.ReLU(inplace=True)),
+                    # (name + "norm1", nn.BatchNorm2d(num_features=features)),
+                    # (name + "relu1", nn.ReLU(inplace=True)),
+                    (name + "prelu1", nn.PReLU(num_parameters=features)),
                     ('pad2', Padder(padval=[1]*4, padmode="circular")),
                     (
                         name + "conv2",
@@ -126,8 +139,9 @@ class UNet(nn.Module):
                             bias=False,
                         ),
                     ),
-                    (name + "norm2", nn.BatchNorm2d(num_features=features)),
-                    (name + "relu2", nn.ReLU(inplace=True)),
+                    # (name + "norm2", nn.BatchNorm2d(num_features=features)),
+                    # (name + "relu2", nn.ReLU(inplace=True)),
+                    (name + "prelu2", nn.PReLU(num_parameters=features)),
                 ]
             )
         )
@@ -174,14 +188,16 @@ class UNet_loop(nn.Module):
         
         
         self.temporal = temporal
-        
-        layers = OrderedDict() 
+        if type(tanh) is not list:
+            tanh = [tanh] * temporal
+
+        layers = OrderedDict()
         for t in range(temporal):
             
             layers[str(t)] = UNet(in_channels=in_channels, 
                               out_channels=out_channels, 
                               init_features=init_features, 
-                              tanh=tanh)
+                              tanh=tanh[t])
             
         self.unets = nn.Sequential(layers)
 

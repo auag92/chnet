@@ -26,8 +26,16 @@ from toolz.curried import pipe
 from toolz.curried import map as fmap
 from sklearn.base import RegressorMixin, TransformerMixin, BaseEstimator
 
-from .func import curry, array_from_tuple
-from .func import dafftshift, dafftn, daifftn, daifftshift
+from .func import (
+    curry,
+    array_from_tuple,
+    rechunk,
+    dafftshift,
+    dafftn,
+    daifftn,
+    daifftshift,
+    zero_pad,
+)
 
 
 @curry
@@ -179,7 +187,7 @@ def fit(x_data, y_data, discretize, redundancy_func=lambda _: (slice(None),)):
     """Calculate the MKS influence coefficients.
 
     Args:
-      x_data: the mircrostructure field
+      x_data: the microstructure field
       y_data: the response field
       discretize: a function that returns the discretized data and
         redundancy function
@@ -231,7 +239,7 @@ def _ini_axes(arr):
 
 @curry
 def coeff_to_real(coeff, new_shape=None):
-    """Covert the coefficents to real space
+    """Convert the coefficents to real space
 
     Args:
       coeff: the coefficient in Fourier space
@@ -239,6 +247,7 @@ def coeff_to_real(coeff, new_shape=None):
 
     Returns:
       the coefficients in real space
+
     """
     return pipe(
         coeff,
@@ -313,61 +322,11 @@ def coeff_resize(coeff, shape):
     return pipe(
         coeff,
         coeff_to_real,
-        zero_pad(shape=shape + coeff.shape[-1:]),
-        coeff_to_frequency,
-    )
-
-
-@curry
-def zero_pad(arr, shape):
-    """Zero pad an array with zeros
-
-    Args:
-      arr: the array to pad
-      shape: the shape of the new array
-
-    Returns:
-      the new padded version of the array
-
-    >>> print(
-    ...     zero_pad(
-    ...         np.arange(4).reshape([1, 2, 2, 1]),
-    ...         (1, 4, 5, 1)
-    ...     )[0,...,0].compute()
-    ... )
-    [[0 0 0 0 0]
-     [0 0 0 1 0]
-     [0 0 2 3 0]
-     [0 0 0 0 0]]
-    >>> print(zero_pad(np.arange(4).reshape([2, 2]), (4, 5)).compute())
-    [[0 0 0 0 0]
-     [0 0 0 1 0]
-     [0 0 2 3 0]
-     [0 0 0 0 0]]
-    >>> zero_pad(zero_pad(np.arange(4).reshape([2, 2]), (4, 5, 1)))
-    Traceback (most recent call last):
-    ...
-    RuntimeError: length of shape is incorrect
-    >>> zero_pad(zero_pad(np.arange(4).reshape([2, 2]), (1, 2)))
-    Traceback (most recent call last):
-    ...
-    RuntimeError: resize shape is too small
-    """
-    if len(shape) != len(arr.shape):
-        raise RuntimeError("length of shape is incorrect")
-
-    if not np.all(shape >= arr.shape):
-        raise RuntimeError("resize shape is too small")
-
-    return pipe(
-        np.array(shape) - np.array(arr.shape),
-        lambda x: da.concatenate(
-            ((x - (x // 2))[..., None], (x // 2)[..., None]), axis=1
+        zero_pad(
+            shape=shape + coeff.shape[-1:],
+            chunks=((-1,) * len(shape)) + (coeff.chunks[-1],),
         ),
-        fmap(tuple),
-        tuple,
-        lambda x: np.pad(arr, x, "constant", constant_values=0),
-        lambda x: da.from_array(x, chunks=x.shape),
+        coeff_to_frequency,
     )
 
 
@@ -388,31 +347,12 @@ def reshape(data, shape):
     return data.reshape(data.shape[0], *shape[1:])
 
 
-def flatten(data):
-    """Flatten data along all but the first axis
-
-    Args:
-        data: data to flatten
-
-    Returns:
-        the flattened data
-
-    >>> data = np.arange(18).reshape((2, 3, 3))
-    >>> flatten(data).shape
-    (2, 9)
-    """
-    return data.reshape(data.shape[0], -1)
-
-
 class ReshapeTransformer(BaseEstimator, TransformerMixin):
     """Reshape data ready for the LocalizationRegressor
 
     Sklearn likes flat image data, but MKS expects shaped data. This
     class transforms the shape of flat data into shaped image data for
     MKS.
-
-    Attributes:
-       shape: the shape of the reshaped data (ignoring the first axis)
 
     >>> data = np.arange(18).reshape((2, 9))
     >>> ReshapeTransformer((None, 3, 3)).fit(None, None).transform(data).shape
@@ -432,7 +372,7 @@ class ReshapeTransformer(BaseEstimator, TransformerMixin):
         """Transform the X data
 
         Args:
-            x_data: the data to be transformed
+          x_data: the data to be transformed
         """
         return reshape(x_data, self.shape)
 
@@ -446,12 +386,6 @@ class LocalizationRegressor(BaseEstimator, RegressorMixin):
     """Perform the localization in Sklearn pipelines
 
     Allows the localization to be part of a Sklearn pipeline
-
-    Attributes:
-        redundancy_func: function to remove redundant elements from
-            the coefficient matrix
-        coeff: the coefficient matrix
-        y_data_shape: the shape of the predicited data
 
     >>> make_data = lambda s, c: da.from_array(
     ...     np.arange(np.prod(s),
@@ -480,8 +414,9 @@ class LocalizationRegressor(BaseEstimator, RegressorMixin):
         """Instantiate a LocalizationRegressor
 
         Args:
-            redundancy_func: function to remove redundant elements
-                from the coefficient matrix
+          redundancy_func: function to remove redundant elements from
+            the coefficient matrix
+
         """
         self.redundancy_func = redundancy_func
         self.coeff = None
@@ -491,15 +426,15 @@ class LocalizationRegressor(BaseEstimator, RegressorMixin):
         """Fit the data
 
         Args:
-            x_data: the X data to fit
-            y_data: the y data to fit
+          x_data: the X data to fit
+          y_data: the y data to fit
 
         Returns:
-            the fitted LocalizationRegressor
+          the fitted LocalizationRegressor
         """
         self.y_data_shape = y_data.shape
         y_data_reshape = reshape(y_data, x_data.shape[:-1])
-        y_data_da = da.from_array(y_data_reshape, chunks=x_data.chunks[:-1])
+        y_data_da = rechunk(x_data.chunks[:-1], y_data_reshape)
         self.coeff = fit_disc(x_data, y_data_da, self.redundancy_func)
         return self
 

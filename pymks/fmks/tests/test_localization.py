@@ -1,10 +1,15 @@
 """Test the localization model.
 """
 
+from sklearn.pipeline import make_pipeline
 import numpy as np
 import dask.array as da
 from pymks.fmks.bases.primitive import discretize, redundancy
 from pymks.fmks.localization import fit
+from pymks.fmks.bases.primitive import PrimitiveTransformer
+from pymks.fmks.localization import LocalizationRegressor
+from pymks.fmks.data.delta import generate_delta
+from pymks.fmks.data.elastic_fe import solve_fe
 
 
 def _get_x():
@@ -28,14 +33,12 @@ def test():
 def test_setting_kernel():
     """Test resetting the coeffs after coeff resize.
     """
-    from pymks.datasets import make_elastic_FE_strain_delta
-    from pymks.fmks.bases.primitive import PrimitiveTransformer
-    from pymks.fmks.localization import LocalizationRegressor
-    from sklearn.pipeline import make_pipeline
 
-    x_data, y_data = make_elastic_FE_strain_delta(
-        size=(21, 21), elastic_modulus=(100, 130), poissons_ratio=(0.3, 0.3)
-    )
+    x_data = generate_delta(n_phases=2, shape=(21, 21)).persist()
+
+    y_data = solve_fe(
+        x_data, elastic_modulus=(100, 130), poissons_ratio=(0.3, 0.3), macro_strain=0.01
+    )["strain"][..., 0].persist()
 
     model = make_pipeline(PrimitiveTransformer(n_state=2), LocalizationRegressor())
 

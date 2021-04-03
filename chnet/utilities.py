@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from toolz.curried import pipe, curry, compose
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+
 def count_parameters(model):
     from prettytable import PrettyTable
     table = PrettyTable(["Modules", "Parameters"])
@@ -17,11 +18,11 @@ def count_parameters(model):
     print(f"Total Trainable Params: {total_params}")
     return total_params
 
+
 def get_free_gpu():
     os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Free >tmp')
     memory_available = [int(x.split()[2]) for x in open('tmp', 'r').readlines()]
     return np.argmax(memory_available)
-
 
 def draw_im(im, title=None):
     im = np.squeeze(im)
@@ -31,7 +32,6 @@ def draw_im(im, title=None):
         plt.title(title)
     plt.show()
     
-
 @curry
 def return_slice(x_data, cutoff):
     if cutoff is not None:
@@ -78,12 +78,14 @@ def colorbar(mappable):
     return cbar
 
         
-def draw_by_side(args, title='', sub_titles =["", "", ""], scale=6, vmin=-1., vmax=1.0):
+def draw_by_side(args, title='', sub_titles=None, scale=6, vmin=-1.0, vmax=1.0):
     fig, axs = plt.subplots(nrows=1, ncols=len(args), figsize=(scale*1.6180,scale))
     fig.suptitle(title, fontsize=20)
     
+    
     for ix, arg in enumerate(args):
-        axs[ix].set_title(sub_titles[ix])
+        if sub_titles:
+            axs[ix].set_title(sub_titles[ix])
         im1 = axs[ix].imshow(arg, interpolation='nearest', cmap='seismic', vmin=vmin, vmax=vmax)
         colorbar(im1)
         
@@ -106,33 +108,3 @@ def get_primes(n):
             sieve[      ((k*k)//3)      ::2*k] = False
             sieve[(k*k+4*k-2*k*(i&1))//3::2*k] = False
     return np.r_[2,3,((3*np.nonzero(sieve)[0]+1)|1)]
-        
-        
-# def draw_by_side(X, Y, title='', title_left='', title_right='', sample_id = 0):
-#     if X.ndim == 3:
-#         try:
-#             fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
-#             fig.suptitle(title, fontsize=20)
-
-#             ax1.set_title(title_left)
-#             im1 = ax1.imshow(X[sample_id],interpolation='nearest')
-
-#             ax2.set_title(title_right)
-#             im2 = ax2.imshow(Y[sample_id],interpolation='nearest')
-
-#             plt.tight_layout()
-#             plt.show()
-#         except IndexError:
-#             print("Requested Sample # %d exceeds data size" % (sample_id+1))
-#     else:
-#         fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
-#         fig.suptitle(title, fontsize=20)
-
-#         ax1.set_title(title_left)
-#         im1 = ax1.imshow(X,interpolation='nearest')
-
-#         ax2.set_title(title_right)
-#         im2 = ax2.imshow(Y,interpolation='nearest')
-
-#         plt.tight_layout()
-#         plt.show()

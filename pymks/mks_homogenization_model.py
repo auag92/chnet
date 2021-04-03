@@ -3,7 +3,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import Pipeline
 import numpy as np
-
+from .fmks.func import deprecate
 
 class MKSHomogenizationModel(MKSStructureAnalysis):
 
@@ -62,7 +62,7 @@ class MKSHomogenizationModel(MKSStructureAnalysis):
     >>> assert np.allclose(y0_test, [0, 0, 0])
     >>> assert np.allclose(y1_test, [1, 1, 1])
     """
-
+    @deprecate
     def __init__(self, basis=None, dimension_reducer=None, n_components=None,
                  property_linker=None, degree=1, periodic_axes=None,
                  correlations=None, compute_correlations=True, n_jobs=1,
@@ -74,7 +74,7 @@ class MKSHomogenizationModel(MKSStructureAnalysis):
             basis (class, optional): an instance of a bases class.
             dimension_reducer (class, optional): an instance of a
                 dimensionality reduction class with a fit_transform method. The
-                default class is RandomizedPCA.
+                default class is PCA.
             property_linker (class, optional): an instance for a machine
                 learning class with fit and predict methods.
             n_components (int, optional): number of components kept by the

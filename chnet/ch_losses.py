@@ -24,3 +24,22 @@ def max_loss(y1, y2, scale=1.):
 @curry
 def mean_diff(y1, y2, scale=1.):
     return (y1.sum(axis=(1,2,3)) - y2.sum(axis=(1,2,3))).abs().mean() * scale
+
+@curry
+def mae_loss(y1, y2, scale=1.):
+    """standard MAE definition"""
+    return (torch.abs(y1 - y2)).sum() / y1.data.nelement() * scale
+
+
+@curry
+def ssim_loss(y1, y2, scale=11):
+    from chnet.ssim import SSIM
+    ssim = SSIM(window_size=scale, size_average=True)
+    return 1. - 0.5 * ssim(y1, y2)
+
+
+@curry
+def mssim_loss(y1, y2, scale=11):
+    from pytorch_ssim import SSIM
+    ssim = SSIM(window_size=scale, size_average=True)
+    return 1. - 0.5 * ssim(y1, y2)

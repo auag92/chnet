@@ -7,45 +7,79 @@ from toolz.curried import pipe, curry, compose
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.optim import lr_scheduler
 from torchvision import transforms, utils
 from torch.utils.data import Dataset, DataLoader
 
+from chnet.ch_losses import *
 import chnet.ch_tools as ch_tools
 import chnet.utilities as ch_utils
+from chnet.models import get_model
 import chnet.ch_generator as ch_gen
 from chnet.ch_loader import CahnHillDataset
-from chnet.models import UNet, UNet_solo_loop, UNet_loop, mse_loss
 
 
-def train(key="unet", mid=0.0, dif=0.449, dim_x=96, dx=0.25, dt=0.01, 
-            gamma=0.2, init_steps=1, nstep=20, n_samples_trn=1024, 
-            ngf=32, final_tstep = 5000, num_epochs=10, 
-            learning_rate=1.0e-5, n_primes=2000, 
-            device="cuda"):
-    
-    m_l=mid-dif
-    m_r=mid+dif
-    delta_sim_steps=(final_tstep-init_steps)//nstep
-    primes = ch_utils.get_primes(n_primes)
-    
-    print("no. of datasets: {}".format(len(primes)))
+def get_criterion(criterion="mae", scale=100):
+    if criterion == "mae":
+        return mae_loss(scale=scale)
+    elif criterion == "ssim":
+        return ssim_loss(scale=scale)
+
+
+def train(key="unet", 
+          ngf=32,
+          tanh=True,
+          conv=True,
+          mid=0.0, 
+          dif=0.449, 
+          dim_x=96, 
+          dx=0.25, 
+          dt=0.01, 
+          gamma=0.2, 
+          init_steps=1, 
+          nstep=5, 
+          n_samples_trn=1024, 
+          n_datasets=10, 
+          final_tstep=1001, 
+          num_epochs=10, 
+          learning_rate=1.0e-5,
+          optimizer="sgd", 
+          schedule=True,
+          criterion="mae",
+          scale=100,
+          device="cuda", 
+          save=True, 
+          tag="script", 
+          fldr="weights", 
+          weight_file=None):
     
     device = torch.device("cuda:0") if device == "cuda" else torch.device("cpu")
     print(device)
-    if key == "unet":
-        model=UNet(in_channels=1, out_channels=1, init_features=ngf).double().to(device)
-    elif key == "unet_solo_loop":
-        model=UNet_solo_loop(in_channels=1, out_channels=1, init_features=ngf, temporal=nstep).double().to(device)
-    elif key == "unet_loop":
-        model=UNet_loop(in_channels=1, out_channels=1, init_features=ngf, temporal=nstep).double().to(device)
+    model = get_model(key=key, ngf=ngf, tanh=tanh, conv=conv, nstep=nstep, device=device)
+    if len(weight_file) >0:
+        print("loading saved weights")
+        model.load_state_dict(torch.load(weight_file, map_location=device)["state"])
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    trn_losses = []
-
-    fout = "weights/model_{}_size_{}_step_{}_init_{}_delta_{}_tstep_{}.pt".format(key, ngf, nstep, init_steps, delta_sim_steps, num_epochs*len(primes))  
+    delta_sim_steps=(final_tstep-init_steps)//nstep
+    primes = ch_utils.get_primes(50000)[:n_datasets]
+    print("no. of datasets: {}".format(len(primes)))
+    fout = "{}/model_{}_size_{}_step_{}_init_{}_delta_{}_tstep_{}_tanh_{}_loss_{}_tag_{}.pt".format(fldr, key, ngf, nstep, init_steps, delta_sim_steps, num_epochs*len(primes), tanh, criterion, tag)  
     print("model saved at: {}".format(fout))
 
     print("Start Training")
+    trn_losses = []
+    criterion= get_criterion(criterion=criterion, scale=scale)
+    if optimizer == "sgd":
+        optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    elif optimizer == "adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    print(criterion)
+    print(optimizer)
+    if schedule:
+        print("starting scheduler")
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(primes)*n_samples_trn*num_epochs//8, eta_min=1e-8, last_epoch=-1)
+    loss_prev = 100
     for num, prime in enumerate(primes):
         # Loss and optimizer
         torch.cuda.empty_cache()
@@ -55,8 +89,8 @@ def train(key="unet", mid=0.0, dif=0.449, dim_x=96, dx=0.25, dt=0.01,
                                       delta_sim_steps = delta_sim_steps,
                                       dx=dx, 
                                       dt=dt,
-                                      m_l=m_l, 
-                                      m_r=m_r,
+                                      m_l=mid-dif, 
+                                      m_r=mid+dif,
                                       n_step=nstep,
                                       gamma=gamma, 
                                       seed=2513*prime,
@@ -72,10 +106,10 @@ def train(key="unet", mid=0.0, dif=0.449, dim_x=96, dx=0.25, dt=0.01,
                                 shuffle=True, 
                                 num_workers=4)
 
-        print("Training Run: {}, prime: {}".format(num, prime))
+        print("Training Run: {}".format(num+1))
 
         total_step = len(trn_loader)
-        
+
         for epoch in range(num_epochs):  
             for i, item_trn in enumerate(tqdm(trn_loader)):
                 
@@ -90,52 +124,38 @@ def train(key="unet", mid=0.0, dif=0.449, dim_x=96, dx=0.25, dt=0.01,
                 else:
                     x = item_trn['x'][:,0].to(device)
                     y_tru = item_trn['y'][:,-1] .to(device) 
-                    
-                y_prd = model(x) # Forward pass
-                loss = mse_loss(y_tru, y_prd, scale=10000)
-               
+  
+                y_prd = model(x)# Forward pass
+                # means_inp = x.mean(axis=(1,2,3))
+                # means_out = y_prd.mean(axis=(1,2,3))
+                loss = criterion(y_tru, y_prd)
                 # Backward and optimize
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                trn_losses.append(np.sqrt(loss.item()))
-
-            print ('Epoch [{}/{}], Training Loss: {:.11f}'.format(epoch+1, num_epochs, np.mean(trn_losses[-total_step:])))
-
-        obj = {}
-        obj["state"] = model.state_dict()
-        obj["losses"] = trn_losses
-        torch.save(obj, fout)
+                trn_losses.append(loss.item())
+                scheduler.step()
+            loss_curr = np.mean(trn_losses[-total_step:])
+            print ('Epoch [{}/{}], Training Loss: {:.2f}, Learning Rate: {:.3e}'.format(epoch+1, num_epochs, loss_curr, scheduler.get_lr()[0]))
+            # print ("Means, inp: {:1.3f}, out: {:1.3f}".format(x.mean(axis=(1,2,3)).data, y_prd.mean(axis=(1,2,3))).data)
+            obj = {}
+            obj["state"] = model.state_dict()
+            obj["losses"] = trn_losses
+            if loss_curr < loss_prev:
+                loss_prev = loss_curr
+                if save:
+                    torch.save(obj, fout)
+                    print("model saved at set: {}, epoch: {}".format(num+1, epoch+1))
+            
     print("End Training")
-    return model
+    return obj
 
 if __name__ == "__main__":
-    # arguments = {"key":"unet_solo_loop",
-    #              "mid":0.0, 
-    #              "dif":0.449, 
-    #              "dim_x":96,
-    #              "init_steps":1, 
-    #              "dx":0.25,
-    #              "dt":0.01,
-    #              "gamma":0.2, 
-    #              "n_samples_trn":1024,
-    #              "ngf":8,
-    #              "nstep":5,
-    #              "final_tstep":5000,
-    #              "num_epochs":10,
-    #              "n_primes":5,
-    #              "learning_rate":1.0e-4,
-    #              "device":"cuda"}
-    # for finp in ["args_loop.json", "args_solo_loop.json", "args_unet.json",]:
-    #     with open(finp, 'r') as f:
-    #         arguments = json.load(f)
-    #     arguments["n_primes"] = 100
-        # print(arguments)
+
     if len(sys.argv) > 1:
         for argv in sys.argv[1:]:
             with open(argv, 'r') as f:
                 arguments = json.load(f)
-            print(argv)
             print(arguments)
             model = train(**arguments)
     else:
