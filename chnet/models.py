@@ -125,7 +125,7 @@ class UNet(nn.Module):
                             bias=False,
                         ),
                     ),
-                    # (name + "norm1", nn.BatchNorm2d(num_features=features)),
+                    (name + "norm1", nn.BatchNorm2d(num_features=features)),
                     # (name + "relu1", nn.ReLU(inplace=True)),
                     (name + "prelu1", nn.PReLU(num_parameters=features)),
                     ('pad2', Padder(padval=[1]*4, padmode="circular")),
@@ -139,7 +139,7 @@ class UNet(nn.Module):
                             bias=False,
                         ),
                     ),
-                    # (name + "norm2", nn.BatchNorm2d(num_features=features)),
+                    (name + "norm2", nn.BatchNorm2d(num_features=features)),
                     # (name + "relu2", nn.ReLU(inplace=True)),
                     (name + "prelu2", nn.PReLU(num_parameters=features)),
                 ]
@@ -161,13 +161,13 @@ class UNet_solo_loop(nn.Module):
         
     def forward(self, x):
         """
-        :param x:  4D tensor bz * ch * 240 * 240
+        :param x:  5D tensor bz * t * ch * 240 * 240
         :return:
         """
         u_output = []
         for t in range(self.temporal):
-            x = self.unets(x)
-            u_output.append(x)
+            o = self.unets(x[:,t])
+            u_output.append(o)
             
         return torch.stack(u_output, dim=1)
     
@@ -201,9 +201,10 @@ class UNet_loop(nn.Module):
             
         self.unets = nn.Sequential(layers)
 
+
     def forward(self, x):
         """
-        :param x:  4D tensor    bz * t * ch * 240 * 240
+        :param x:  4D tensor    bz * ch * 240 * 240
         :return:
         """
         u_output = []
@@ -212,18 +213,7 @@ class UNet_loop(nn.Module):
             u_output.append(x)
            
         return torch.stack(u_output, dim=1)   
-    
-#     def forward(self, x):
-#         """
-#         :param x:  5D tensor    bz * t * ch * 240 * 240
-#         :return:
-#         """
-#         u_output = []
-#         for t in range(self.temporal):
-#             y = self.unets[t](x[:,t])
-#             u_output.append(y)
-            
-#         return torch.stack(u_output, dim=1)
+
 
     def predict(self, x):
         """
@@ -232,78 +222,4 @@ class UNet_loop(nn.Module):
         """
         for t in range(self.temporal):
             x = self.unets[t](x)
-        return x    
-
-    
-class UNet_res(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, init_features=32, tanh=True, temporal=1):
-        super(UNet_res, self).__init__()
-            
-        self.unets = UNet(in_channels=in_channels, 
-                          out_channels=out_channels, 
-                          init_features=init_features, 
-                          tanh=tanh)
-        
-    def forward(self, x):
-        """
-        :param x:  4D tensor    bz * ch * 240 * 240
-        :return:
-        """
-            
-        return self.unets(x) + x   
-           
-
-class UNet_solo_resloop(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, init_features=32, temporal=1, tanh=True):
-        super(UNet_solo_resloop, self).__init__()
-        
-        
-        self.temporal = temporal
-        
-        self.unets = UNet(in_channels=in_channels, 
-                          out_channels=out_channels, 
-                          init_features=init_features, 
-                          tanh=tanh)
-        
-    def forward(self, x):
-        """
-        :param x:  4D tensor bz * ch * 240 * 240
-        :return:
-        """
-        u_output = []
-        for t in range(self.temporal):
-            x = self.unets(x) + x
-            u_output.append(x)
-            
-        return torch.stack(u_output, dim=1)
-        
-        
-class UNet_resloop(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, init_features=32, temporal=1, tanh=True):
-        super(UNet_resloop, self).__init__()
-        
-        
-        self.temporal = temporal
-        
-        layers = OrderedDict() 
-        for t in range(temporal):
-            
-            layers[str(t)] = UNet(in_channels=in_channels, 
-                              out_channels=out_channels, 
-                              init_features=init_features, 
-                              tanh=tanh)
-            
-        self.unets = nn.Sequential(layers)
-        
-    def forward(self, x):
-        """
-        :param x:  5D tensor    bz * t * ch * 240 * 240
-        :return:
-        """
-        u_output = []
-        y = x[:,0]
-        for t in range(self.temporal):
-            y = self.unets[t](y) + x[:,t]
-            u_output.append(y)
-            
-        return torch.stack(u_output, dim=1)
+        return x

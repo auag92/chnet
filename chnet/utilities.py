@@ -24,9 +24,9 @@ def get_free_gpu():
     memory_available = [int(x.split()[2]) for x in open('tmp', 'r').readlines()]
     return np.argmax(memory_available)
 
-def draw_im(im, title=None):
+def draw_im(im, title=None, vmin=-1, vmax=1):
     im = np.squeeze(im)
-    plt.imshow(im)
+    plt.imshow(im, interpolation='nearest', cmap='seismic', vmin=vmin, vmax=vmax)
     plt.colorbar()
     if title is not None:
         plt.title(title)

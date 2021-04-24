@@ -43,8 +43,10 @@ def train(key="unet",
           final_tstep=1001, 
           num_epochs=10, 
           learning_rate=1.0e-5,
+          eta_min=1.0e-6,
           optimizer="sgd", 
           schedule=True,
+          schedule_per_set=True,
           criterion="mae",
           scale=100,
           device="cuda", 
@@ -64,6 +66,7 @@ def train(key="unet",
     primes = ch_utils.get_primes(50000)[:n_datasets]
     print("no. of datasets: {}".format(len(primes)))
     fout = "{}/model_{}_size_{}_step_{}_init_{}_delta_{}_tstep_{}_tanh_{}_loss_{}_tag_{}.pt".format(fldr, key, ngf, nstep, init_steps, delta_sim_steps, num_epochs*len(primes), tanh, criterion, tag)  
+    ffin = "{}/model_{}_size_{}_step_{}_init_{}_delta_{}_tstep_{}_tanh_{}_loss_{}_tag_{}_final.pt".format(fldr, key, ngf, nstep, init_steps, delta_sim_steps, num_epochs*len(primes), tanh, criterion, tag)  
     print("model saved at: {}".format(fout))
 
     print("Start Training")
@@ -76,10 +79,13 @@ def train(key="unet",
 
     print(criterion)
     print(optimizer)
+    
     if schedule:
         print("starting scheduler")
-        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(primes)*n_samples_trn*num_epochs//8, eta_min=1e-8, last_epoch=-1)
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(primes)*n_samples_trn*num_epochs//8, eta_min=eta_min, last_epoch=-1)
+    
     loss_prev = 100
+    
     for num, prime in enumerate(primes):
         # Loss and optimizer
         torch.cuda.empty_cache()
@@ -117,7 +123,7 @@ def train(key="unet",
                 
                 if "loop" in key:
                     if "solo" in key:
-                        x = item_trn['x'][:,0].to(device)
+                        x = item_trn['x'].to(device)
                     else:
                         x = item_trn['x'][:,0].to(device)
                     y_tru = item_trn['y'].to(device)
@@ -137,7 +143,6 @@ def train(key="unet",
                 scheduler.step()
             loss_curr = np.mean(trn_losses[-total_step:])
             print ('Epoch [{}/{}], Training Loss: {:.2f}, Learning Rate: {:.3e}'.format(epoch+1, num_epochs, loss_curr, scheduler.get_lr()[0]))
-            # print ("Means, inp: {:1.3f}, out: {:1.3f}".format(x.mean(axis=(1,2,3)).data, y_prd.mean(axis=(1,2,3))).data)
             obj = {}
             obj["state"] = model.state_dict()
             obj["losses"] = trn_losses
@@ -146,7 +151,7 @@ def train(key="unet",
                 if save:
                     torch.save(obj, fout)
                     print("model saved at set: {}, epoch: {}".format(num+1, epoch+1))
-            
+    torch.save(obj, ffin)        
     print("End Training")
     return obj
 
@@ -158,5 +163,6 @@ if __name__ == "__main__":
                 arguments = json.load(f)
             print(arguments)
             model = train(**arguments)
+            print(arguments)
     else:
         print("please supply input arguments file.")

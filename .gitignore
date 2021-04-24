@@ -1,6 +1,7 @@
 # Project specific directories to be ignored
 weights/
 archive/
+stepmodels/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
